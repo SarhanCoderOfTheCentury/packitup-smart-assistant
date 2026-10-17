@@ -68,6 +68,7 @@ class RouterDecision(BaseModel):
         "custom_order_lead",
         "order_status_or_checkout",
         "multi_domain",
+        "consultative_advisory",
     ]
     target_agents: List[AgentName] = Field(
         ...,

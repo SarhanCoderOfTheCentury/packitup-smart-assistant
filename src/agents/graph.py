@@ -37,7 +37,7 @@ def _get_llm():
             model=settings.gemini_model,
             google_api_key=settings.google_api_key,
             temperature=settings.gemini_temperature,
-            timeout=8.0,
+            timeout=25.0,
             max_retries=1,
         )
     except Exception:
@@ -195,13 +195,29 @@ def _heuristic_route_and_extract(user_query: str) -> RouterDecision:
         if "A3_collection_navigator" not in target_agents:
             target_agents.append("A3_collection_navigator")
 
-    # 7. Default or supplementary Product Discovery
-    if not target_agents or any(k in q_low for k in ("show", "find", "looking for", "need", "recommend", "suggest", "box", "cup", "pouch", "bag", "bowl", "straw", "cutlery", "napkin", "sticker", "ribbon", "flyer", "tray", "bakery", "burger", "boba", "coffee", "cake", "cupcake", "brownie", "donut", "fries")):
-        if "A1_product_discovery" not in target_agents and entities.cart_action not in ("clear", "view", "remove"):
-            target_agents.insert(0, "A1_product_discovery")
+    # 7. Detect Consultative / Advisory Queries (e.g., "help me think through", "ask relevant questions", "what packaging do i need")
+    is_consultative = any(k in q_low for k in (
+        "think through", "ask me questions", "ask questions", "ask relevant questions",
+        "help me choose", "help me decide", "guide me", "advice", "advise",
+        "starting a", "opening a", "new business", "what do i need for my",
+        "packaging needs for my", "what do you suggest for a", "consultation",
+        "help me think", "help me plan", "packaging strategy"
+    ))
+
+    # 8. Default or supplementary Product Discovery
+    if not is_consultative:
+        if not target_agents or any(k in q_low for k in ("show", "find", "looking for", "need", "recommend", "suggest", "box", "cup", "pouch", "bag", "bowl", "straw", "cutlery", "napkin", "sticker", "ribbon", "flyer", "tray", "bakery", "burger", "boba", "coffee", "cake", "cupcake", "brownie", "donut", "fries")):
+            if "A1_product_discovery" not in target_agents and entities.cart_action not in ("clear", "view", "remove"):
+                target_agents.insert(0, "A1_product_discovery")
+    else:
+        # For consultative dialog, provide discovery context for relevant business category
+        if not target_agents:
+            target_agents.append("A1_product_discovery")
 
     primary_intent = "multi_domain" if len(target_agents) > 1 else "product_lookup"
-    if entities.cart_action:
+    if is_consultative:
+        primary_intent = "consultative_advisory"
+    elif entities.cart_action:
         primary_intent = "cart_operation"
     elif target_agents == ["A4_policy_compliance"]:
         primary_intent = "policy_question"
@@ -575,6 +591,15 @@ def node_a6_order_support(state: AgentState) -> Dict[str, Any]:
 
 def _generate_smart_suggestions(state: AgentState) -> List[str]:
     """Generates contextual follow-up prompt pills for the Streamlit UI."""
+    decision = state.get("router_decision") or {}
+    if decision.get("primary_intent") == "consultative_advisory":
+        return [
+            "We serve smash burgers & loaded fries primarily for delivery",
+            "We are a takeaway café serving coffee, boba & desserts",
+            "We serve fried chicken, broast & signature dips",
+            "I need custom logo printed packaging (MOQ 1,000 pcs)",
+        ]
+
     cards = state.get("product_cards", [])
     cart = state.get("cart_state", {})
     suggestions: List[str] = []
@@ -601,6 +626,22 @@ def _deterministic_synthesize(state: AgentState) -> str:
     cart = state.get("cart_state", {})
     cart_note = state.get("cart_notification")
     lead = state.get("captured_lead")
+    decision = state.get("router_decision") or {}
+    is_consult = decision.get("primary_intent") == "consultative_advisory"
+
+    if is_consult:
+        consult_header = (
+            "Hello! I'm your Lead Packaging Consultant at **PackItUp.com.pk**. It's great to connect with an entrepreneur in the food & retail scene! "
+            "Choosing the right packaging is all about balancing food presentation, heat/grease retention, and unit cost.\n\n"
+            "To help build the ideal packaging checklist for your business, could you tell me a little more about your setup?\n\n"
+            "1. **What are your signature menu items?** (e.g., Smash burgers, loaded fries, fried chicken, wraps, or rice bowls? This determines if we need corrugated clamshells vs greaseproof butter paper vs leak-proof meal boxes).\n"
+            "2. **What is your primary service model?** (Dine-in, takeaway counter, or third-party delivery via Foodpanda/Careem where steam ventilation and tamper-evident bags are vital?)\n"
+            "3. **What beverages or sides do you serve?** (e.g., Cold drinks/milkshakes in 12oz/16oz U-shaped PET cups with dome/flat lids, cup carriers, paper straws?)\n"
+            "4. **Do you need portion dip cups?** (e.g., 1oz / 2oz dip cups with snap-on lids for sauces and dips?)\n"
+            "5. **Are you starting with standard plain stock or custom logo branding?** (Standard plain kraft packaging has small MOQ pack sizes of 20–50 packs ready to ship, while custom logo printing starts around 500–1,000 pcs).\n\n"
+            "Share your thoughts on any of these points, and I'll curate your tailored Starter Packaging Checklist with exact pack sizes and prices!"
+        )
+        parts.append(consult_header)
 
     if cart_note:
         parts.append(f"### 🛒 Cart Update\n**{cart_note}**\n- **Active Cart**: {cart.get('item_count', 0)} line item(s) ({cart.get('total_packs', 0)} packs) • **Subtotal: {cart.get('subtotal_display', 'PKR 0')}**")
@@ -678,7 +719,7 @@ def _deterministic_synthesize(state: AgentState) -> str:
             else:
                 parts.append(f"### 🛍️ Checkout & Order Support\n- {chk.get('error')}\n- For existing order tracking or damaged delivery claims (within 24h with photo/video proof), contact **+92 322 2620169**.")
 
-    if cards:
+    if cards and not is_consult:
         card_bullets = []
         for c in cards[:6]:
             stock_tag = "In Stock" if c["in_stock"] else ("Custom Quote Only" if c["requires_custom_quote"] else "Out of Stock")
@@ -711,8 +752,12 @@ def node_synthesizer(state: AgentState) -> Dict[str, Any]:
         llm = _get_llm()
         if llm is not None:
             try:
+                decision = state.get("router_decision") or {}
+                is_consult = decision.get("primary_intent") == "consultative_advisory"
+
                 context_summary = {
                     "user_query": state["user_query"],
+                    "primary_intent": decision.get("primary_intent"),
                     "executed_agents": state.get("executed_agents", []),
                     "cart_notification": state.get("cart_notification"),
                     "cart_state": state.get("cart_state"),
@@ -731,13 +776,23 @@ def node_synthesizer(state: AgentState) -> Dict[str, Any]:
                         for c in state.get("product_cards", [])[:5]
                     ],
                 }
+
+                instruction = (
+                    "The customer is asking for packaging consultation and needs discovery. "
+                    "Engage warmly in natural language, explain what factors to consider, and ask 3-5 sharp diagnostic questions "
+                    "about their menu, service model (dine-in vs delivery), and drinks before recommending an exact packaging checklist. "
+                    "Do NOT just dump a list of product cards or prices."
+                    if is_consult
+                    else "Write a concise, helpful, citation-grounded response in Markdown."
+                )
+
                 resp = llm.invoke([
                     SystemMessage(content=SYNTHESIZER_SYSTEM_PROMPT),
                     HumanMessage(
                         content=(
                             f"Customer message: {state['user_query']}\n\n"
                             f"Grounded Specialist Data:\n{context_summary}\n\n"
-                            "Write a concise, helpful, citation-grounded response in Markdown."
+                            f"Instructions:\n{instruction}"
                         )
                     ),
                 ])
@@ -749,11 +804,17 @@ def node_synthesizer(state: AgentState) -> Dict[str, Any]:
 
     final_md = _clean_llm_response(final_md)
     suggestions = _generate_smart_suggestions(state)
-    return {
+    decision = state.get("router_decision") or {}
+    is_consult = decision.get("primary_intent") == "consultative_advisory"
+
+    ret: Dict[str, Any] = {
         "final_response": final_md,
         "suggested_prompts": suggestions,
         "messages": [AIMessage(content=final_md)],
     }
+    if is_consult:
+        ret["product_cards"] = []
+    return ret
 
 
 def _route_next_specialist(state: AgentState) -> str:
