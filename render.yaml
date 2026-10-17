@@ -1,0 +1,20 @@
+services:
+  - type: web
+    name: packitup-smart-assistant-api
+    runtime: python
+    plan: starter
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn src.backend.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: GOOGLE_API_KEY
+        sync: false
+      - key: GEMINI_MODEL
+        value: gemini-2.5-flash
+      - key: GEMINI_EMBEDDING_MODEL
+        value: models/gemini-embedding-001
+      - key: WHATSAPP_VERIFY_TOKEN
+        value: packitup_verify_secret_2026
+    disk:
+      name: packitup-data-disk
+      mountPath: /opt/render/project/src/data
+      sizeGB: 2

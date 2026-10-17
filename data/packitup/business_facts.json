@@ -1,0 +1,14 @@
+{
+ "name": "PackItUp",
+ "domain": "packitup.com.pk",
+ "platform": "Shopify",
+ "address": "3/3 Multi Chowk Road, near Ahbab Sweets, Nazimabad Block 2, Karachi, Pakistan",
+ "phone": "+92 322 2620169",
+ "email": "packitup.khi@gmail.com",
+ "facebook": "https://www.facebook.com/packitup.com.pk",
+ "instagram": "https://www.instagram.com/packitup_pk/?hl=en",
+ "currency": "PKR",
+ "vendor": "Pack it up",
+ "agent_mcp_endpoint": "https://packitup.com.pk/api/ucp/mcp",
+ "agents_md": "https://packitup.com.pk/agents.md"
+}

@@ -1,0 +1,16 @@
+# PackItUp Smart Shopping Assistant — Production & Streamlit Cloud Dependencies
+langchain>=0.3.20
+langchain-core>=0.3.40
+langchain-community>=0.3.19
+langgraph>=0.3.5
+langchain-google-genai>=2.1.0
+langchain-chroma>=0.2.2
+chromadb>=0.6.3
+streamlit>=1.42.0
+fastapi>=0.115.8
+uvicorn[standard]>=0.34.0
+pydantic>=2.10.0
+pandas>=2.2.3
+httpx>=0.28.1
+python-dotenv>=1.0.1
+pysqlite3-binary>=0.5.4; platform_system == "Linux"
